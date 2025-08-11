@@ -22,6 +22,7 @@ try:
     origem = "FOR"
     destino = "RIO"
     data_ida = "05-02-2026"
+    data_ida_max = "20-02-2026"
     url = f"https://b2c.voegol.com.br/compra/busca-parceiros?de={origem}&para={destino}&ida={data_ida}&ADT=1&ADL=0&CHD=0&INF=0&pv=br&tipo=DF&gclid=Cj0KCQjwndHEBhDVARIsAGh0g3AVSPDokhuYBa4BECbApkty4hZk0hEm7ZEq5B6-4OYoFXYjKyKuS8kaAmdREALw_wcB"
     driver.get(url)
 
@@ -40,8 +41,9 @@ try:
         valor_duracao = driver.find_element(By.XPATH, f"//*[@id='lbl_duration_{top_3}_emission']")
         valor_operador = driver.find_element(By.XPATH, f"//*[@id='lbl_segment_{top_3}_emission']")
         valor_preco = driver.find_element(By.XPATH, f"//*[@id='lbl_priceValue_{top_3}_emission']")
+        valor_data = data_ida
 
-        data.append({"Origem": valor_origem.text, "Destino": valor_destino.text, "Duração": valor_duracao.text, "Operador": valor_operador.text, "Preço": valor_preco.text})
+        data.append({"Origem": valor_origem.text, "Destino": valor_destino.text, "Duração": valor_duracao.text, "Operador": valor_operador.text, "Preço": valor_preco.text, "Data": valor_data})
 
     df = pd.DataFrame(data)
     df.to_csv("voos_gol.csv", index=False)
