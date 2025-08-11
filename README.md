@@ -1,2 +1,0 @@
-# pagpouco
-Projeto de estudo
