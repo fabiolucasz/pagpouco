@@ -1,58 +1,80 @@
-import time
-import pandas as pd
-from bs4 import BeautifulSoup
+import concurrent.futures
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from datetime import datetime, timedelta
+import logging
 
-# Configuração do navegador
-options = Options()
-#options.add_argument("--headless")  # Executa em modo headless
-options.add_argument("--no-sandbox")
-options.add_argument("--disable-dev-shm-usage")
-options.add_argument("window-size=1920,1080")
+# Configuração básica
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Inicializar o WebDriver
-driver = webdriver.Chrome(options=options)
+def setup_driver():
+    options = Options()
+    options.add_argument("--headless --no-sandbox --disable-dev-shm-usage")
+    options.page_load_strategy = 'eager'  # Não espera carregar tudo
+    return webdriver.Chrome(options=options)
 
-try:
-    # Acessar a URL
+def scrape_date(date_str, origem, destino):
+    driver = setup_driver()
+    try:
+        url = f"https://b2c.voegol.com.br/compra/busca-parceiros?de={origem}&para={destino}&ida={date_str}&ADT=1"
+        driver.get(url)
+        
+        # Espera otimizada
+        try:
+            xpath = "//*[contains(@id, 'lbl_origin_1_emission')]"
+            WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, xpath)))
+        except:
+            return []
+
+        # Extrai os voos
+        flights = []
+        for i in range(1, 4):
+            try:
+                flight = {
+                    "Data": date_str,
+                    "Origem": driver.find_element(By.XPATH, f"//*[@id='lbl_origin_{i}_emission']").text,
+                    "Destino": driver.find_element(By.XPATH, f"//*[@id='lbl_destination_{i}_emission']").text,
+                    "Preço": driver.find_element(By.XPATH, f"//*[@id='lbl_priceValue_{i}_emission']").text
+                }
+                flights.append(flight)
+            except:
+                continue
+        return flights
+    except Exception as e:
+        logging.error(f"Erro em {date_str}: {str(e)}")
+        return []
+    finally:
+        driver.quit()
+
+def main():
     origem = "FOR"
     destino = "RIO"
     data_ida = "05-02-2026"
     data_ida_max = "20-02-2026"
-    url = f"https://b2c.voegol.com.br/compra/busca-parceiros?de={origem}&para={destino}&ida={data_ida}&ADT=1&ADL=0&CHD=0&INF=0&pv=br&tipo=DF&gclid=Cj0KCQjwndHEBhDVARIsAGh0g3AVSPDokhuYBa4BECbApkty4hZk0hEm7ZEq5B6-4OYoFXYjKyKuS8kaAmdREALw_wcB"
-    driver.get(url)
-
-    wait = WebDriverWait(driver, 20)
-    table = wait.until(
-        EC.presence_of_element_located((By.XPATH, "//*[@id='idAppRoot']/b2c-flow/main/b2c-select-flight/section/div[3]/section/form"))
-
-    )
-
-    data = []
-
-    for top_3 in range(1, 4):
-
-        valor_origem = driver.find_element(By.XPATH, f"//*[@id='lbl_origin_{top_3}_emission']")
-        valor_destino = driver.find_element(By.XPATH, f"//*[@id='lbl_destination_{top_3}_emission']")
-        valor_duracao = driver.find_element(By.XPATH, f"//*[@id='lbl_duration_{top_3}_emission']")
-        valor_operador = driver.find_element(By.XPATH, f"//*[@id='lbl_segment_{top_3}_emission']")
-        valor_preco = driver.find_element(By.XPATH, f"//*[@id='lbl_priceValue_{top_3}_emission']")
-        valor_data = data_ida
-
-        data.append({"Origem": valor_origem.text, "Destino": valor_destino.text, "Duração": valor_duracao.text, "Operador": valor_operador.text, "Preço": valor_preco.text, "Data": valor_data})
-
-    df = pd.DataFrame(data)
-    df.to_csv("voos_gol.csv", index=False)
-
-    print(df)
-
-
-except Exception as e:
-    print(f"Erro ao processar a página: {e}")
-finally:
-    driver.quit()
     
+    # Gera lista de datas
+    start = datetime.strptime(data_ida, "%d-%m-%Y")
+    end = datetime.strptime(data_ida_max, "%d-%m-%Y")
+    date_list = [(start + timedelta(days=x)).strftime("%d-%m-%Y") for x in range((end-start).days + 1)]
+    
+    # Processa em paralelo
+    all_flights = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        future_to_date = {executor.submit(scrape_date, date, origem, destino): date for date in date_list}
+        for future in concurrent.futures.as_completed(future_to_date):
+            all_flights.extend(future.result())
+
+    # Salva resultados
+    if all_flights:
+        df = pd.DataFrame(all_flights)
+        filename = f"voos_gol_otimizado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        df.to_csv(filename, index=False)
+        print(f"\nDados salvos em {filename}")
+        print(f"Total de voos: {len(all_flights)}")
+        print(df.head())
+
+if __name__ == "__main__":
+    main()
